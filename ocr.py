@@ -1,5 +1,6 @@
 import pytesseract
 import cv2
+import numpy as np
 from pathlib import Path
 
 documents_folder = Path("documents")
@@ -10,17 +11,28 @@ all_text = ""
 
 for image_file in documents_folder.iterdir():
     if image_file.suffix.lower() in [".jpg", ".jpeg", ".png"]:
-        # Read image
+        # 1. Read image
         img = cv2.imread(str(image_file))
         
-        # Convert to grayscale <- FIXED THIS LINE
+        # 2. UPSCALE 2x - critical for blurry text
+        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        # 3. Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Improve contrast
+        # 4. DENOISE - removes blur/noise
+        gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+        
+        # 5. INCREASE CONTRAST + THRESHOLD
         gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
         
-        # Run OCR
-        text = pytesseract.image_to_string(gray)
+        # 6. SAVE DEBUG IMAGE so we can check what OCR sees
+        cv2.imwrite(str(output_folder / f"debug_{image_file.name}"), gray)
+        
+        # 7. Run OCR with LSTM neural net mode - BEST for blurry
+        custom_config = r'--oem 1 --psm 3'
+        text = pytesseract.image_to_string(gray, config=custom_config)
+        
         all_text += f"\n\n--- From {image_file.name} ---\n\n" + text
 
 # Save to file
