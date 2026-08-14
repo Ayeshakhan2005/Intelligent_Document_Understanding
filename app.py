@@ -4,8 +4,9 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
+import re
 
-st.set_page_config(page_title="Intelligent Document Understanding")
+st.set_page_config(page_title="Intelligent Document Understanding", layout="wide")
 st.title("📄 Intelligent Document Understanding")
 st.write("Upload document images, extract text with OCR, and ask questions about them.")
 
@@ -19,37 +20,63 @@ if uploaded_files:
     
     for uploaded_file in uploaded_files:
         bytes_data = uploaded_file.getvalue()
+        
+        # Show image
         image = Image.open(io.BytesIO(bytes_data))
         st.image(image, caption=uploaded_file.name, use_container_width=True)
         
-        # OCR with heavy preprocessing
+        # OCR with heavy preprocessing for blurry images
         file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, 1)
+        
+        # 1. UPSCALE 3x 
         img = cv2.resize(img, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        
+        # 2. Grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 3. Denoise
         gray = cv2.fastNlMeansDenoising(gray, None, 30, 7, 21)
+        
+        # 4. Adaptive Threshold - BEST for blurry + uneven light
         gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
+        # 5. OCR with LSTM Engine
         custom_config = r'--oem 1 --psm 6'
         text = pytesseract.image_to_string(gray, config=custom_config)
+        
         all_text += f"\n\n--- From {uploaded_file.name} ---\n\n" + text
     
     st.subheader("Extracted Text")
     st.text_area("Result", all_text, height=300)
     st.download_button("Download Text", all_text, "extracted_text.txt")
 
-    # ===== NEXT PART: CHAT WITH DOCUMENT =====
+    # ===== SMARTER Q&A PART =====
     st.subheader("💬 Ask Questions About Your Document")
     question = st.text_input("Ask anything about the uploaded document:")
-    
-    if question:
-        # Simple search - finds sentences with keywords
-        sentences = all_text.split('.')
-        answers = [s for s in sentences if any(word.lower() in s.lower() for word in question.split())]
+
+    if question and all_text:
+        # Split into sentences
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?]) +', all_text) if len(s.strip()) > 10]
         
-        if answers:
+        # Score sentences by how many question words they contain
+        q_words = set(question.lower().split())
+        scored = []
+        for s in sentences:
+            score = len(q_words.intersection(set(s.lower().split())))
+            if score > 0:
+                scored.append((score, s))
+        
+        scored.sort(reverse=True, key=lambda x: x[0])
+        
+        if scored:
             st.write("**Answer based on document:**")
-            st.write(". ".join(answers[:3]) + ".") # show top 3 matching sentences
+            st.write(scored[0][1]) # Best matching sentence
+            
+            if len(scored) > 1:
+                with st.expander("See more context"):
+                    for _, s in scored[1:3]:
+                        st.write("- " + s)
         else:
             st.write("I couldn't find an answer in the document for that question. Try different keywords.")
 else:
