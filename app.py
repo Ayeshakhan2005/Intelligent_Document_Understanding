@@ -45,6 +45,10 @@ if uploaded_files:
         custom_config = r'--oem 1 --psm 6'
         text = pytesseract.image_to_string(gray, config=custom_config)
         
+        # FIX 1: Join hyphenated words from newspaper columns
+        text = text.replace('-\n', '')
+        text = text.replace('-\r\n', '')
+        
         all_text += f"\n\n--- From {uploaded_file.name} ---\n\n" + text
     
     st.subheader("Extracted Text")
@@ -71,13 +75,13 @@ if uploaded_files:
         
         if scored:
             st.write("**Answer based on document:**")
-            st.write(scored[0][1]) # Best matching sentence
+            st.success(scored[0][1]) # FIX 2: Green box for answer
             
             if len(scored) > 1:
                 with st.expander("See more context"):
                     for _, s in scored[1:3]:
                         st.write("- " + s)
         else:
-            st.write("I couldn't find an answer in the document for that question. Try different keywords.")
+            st.warning("I couldn't find an answer in the document for that question. Try different keywords.")
 else:
     st.info("Please upload images to begin.")
