@@ -1,0 +1,7 @@
+streamlit
+paddleocr
+paddlepaddle
+Pillow
+opencv-python
+transformers
+torch
