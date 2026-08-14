@@ -7,7 +7,7 @@ import io
 
 st.set_page_config(page_title="Intelligent Document Understanding")
 st.title("📄 Intelligent Document Understanding")
-st.write("Upload one or more document images, process them with OCR, and ask questions about their contents.")
+st.write("Upload document images, extract text with OCR, and ask questions about them.")
 
 uploaded_files = st.file_uploader("Upload Document Image(s)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
@@ -19,12 +19,10 @@ if uploaded_files:
     
     for uploaded_file in uploaded_files:
         bytes_data = uploaded_file.getvalue()
-        
-        # Show image
         image = Image.open(io.BytesIO(bytes_data))
-        st.image(image, caption=uploaded_file.name, use_container_width=True) # FIXED LINE
+        st.image(image, caption=uploaded_file.name, use_container_width=True)
         
-        # OCR
+        # OCR with heavy preprocessing
         file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, 1)
         img = cv2.resize(img, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
@@ -34,11 +32,25 @@ if uploaded_files:
         
         custom_config = r'--oem 1 --psm 6'
         text = pytesseract.image_to_string(gray, config=custom_config)
-        
         all_text += f"\n\n--- From {uploaded_file.name} ---\n\n" + text
     
     st.subheader("Extracted Text")
     st.text_area("Result", all_text, height=300)
     st.download_button("Download Text", all_text, "extracted_text.txt")
+
+    # ===== NEXT PART: CHAT WITH DOCUMENT =====
+    st.subheader("💬 Ask Questions About Your Document")
+    question = st.text_input("Ask anything about the uploaded document:")
+    
+    if question:
+        # Simple search - finds sentences with keywords
+        sentences = all_text.split('.')
+        answers = [s for s in sentences if any(word.lower() in s.lower() for word in question.split())]
+        
+        if answers:
+            st.write("**Answer based on document:**")
+            st.write(". ".join(answers[:3]) + ".") # show top 3 matching sentences
+        else:
+            st.write("I couldn't find an answer in the document for that question. Try different keywords.")
 else:
     st.info("Please upload images to begin.")
