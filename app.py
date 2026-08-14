@@ -18,30 +18,20 @@ if uploaded_files:
     all_text = ""
     
     for uploaded_file in uploaded_files:
-        # IMPORTANT: Read bytes once and reuse
         bytes_data = uploaded_file.getvalue()
         
-        # Show image - convert bytes to PIL
+        # Show image
         image = Image.open(io.BytesIO(bytes_data))
-        st.image(image, caption=uploaded_file.name, use_column_width=True)
+        st.image(image, caption=uploaded_file.name, use_container_width=True) # FIXED LINE
         
-        # Convert to OpenCV format for OCR
+        # OCR
         file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, 1)
-        
-        # 1. UPSCALE 3x for blurry
         img = cv2.resize(img, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-        
-        # 2. Grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # 3. Denoise
         gray = cv2.fastNlMeansDenoising(gray, None, 30, 7, 21)
-        
-        # 4. Adaptive Threshold - BEST for blurry newspaper
         gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
-        # 5. OCR with LSTM
         custom_config = r'--oem 1 --psm 6'
         text = pytesseract.image_to_string(gray, config=custom_config)
         
@@ -49,8 +39,6 @@ if uploaded_files:
     
     st.subheader("Extracted Text")
     st.text_area("Result", all_text, height=300)
-    
-    # Download button
     st.download_button("Download Text", all_text, "extracted_text.txt")
 else:
     st.info("Please upload images to begin.")
