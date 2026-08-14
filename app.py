@@ -18,10 +18,15 @@ if uploaded_files:
     all_text = ""
     
     for uploaded_file in uploaded_files:
-        st.image(uploaded_file, caption=uploaded_file.name, use_column_width=True)
+        # IMPORTANT: Read bytes once and reuse
+        bytes_data = uploaded_file.getvalue()
         
-        # Convert to OpenCV format
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        # Show image - convert bytes to PIL
+        image = Image.open(io.BytesIO(bytes_data))
+        st.image(image, caption=uploaded_file.name, use_column_width=True)
+        
+        # Convert to OpenCV format for OCR
+        file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, 1)
         
         # 1. UPSCALE 3x for blurry
@@ -33,7 +38,7 @@ if uploaded_files:
         # 3. Denoise
         gray = cv2.fastNlMeansDenoising(gray, None, 30, 7, 21)
         
-        # 4. Adaptive Threshold - BEST for uneven lighting/blur
+        # 4. Adaptive Threshold - BEST for blurry newspaper
         gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         
         # 5. OCR with LSTM
