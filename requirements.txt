@@ -1,6 +1,8 @@
 streamlit
-pytesseract
+paddleocr
+paddlepaddle
+paddlex
 opencv-python-headless
 numpy
-pillow
+Pillow
 sentence-transformers
