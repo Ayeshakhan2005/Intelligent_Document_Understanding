@@ -1,6 +1,5 @@
 streamlit
 pytesseract
-opencv-python-headless
-numpy
+opencv-python
 Pillow
-sentence-transformers
+numpy
