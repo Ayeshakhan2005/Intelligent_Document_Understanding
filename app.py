@@ -11,25 +11,20 @@ uploaded_file = st.file_uploader("", type=["jpg","jpeg","png"])
 if "extracted_text" not in st.session_state:
     st.session_state.extracted_text = ""
 
-def clean_text(text):
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="Original")
     
-    # STRONG PREPROCESSING FOR BLURRY
+    # THIS PREPROCESSING WORKED FOR YOU BEFORE
     img = np.array(image)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    img = cv2.fastNlMeansDenoising(img, None, 30, 7, 21)
-    kernel = np.array([[0,-1,0], [-1,5,-1], [0,-1,0]])
-    img = cv2.filter2D(img, -1, kernel)
-    img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 19, 15)
+    img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    
+    st.image(img, caption="Processed for OCR")
     
     if st.button("Extract Text"):
-        text = pytesseract.image_to_string(img, config='--psm 6 --oem 3')
-        st.session_state.extracted_text = clean_text(text)
+        text = pytesseract.image_to_string(img, config='--psm 6')
+        st.session_state.extracted_text = text
         st.success("Text Extracted")
     
     if st.session_state.extracted_text:
@@ -40,18 +35,21 @@ if uploaded_file is not None:
         
         if st.button("Get Answer") and question:
             text = st.session_state.extracted_text
-            sentences = [s.strip() for s in re.split(r'(?<=[.!?]) +', text) if s.strip()]
+            # Split into proper sentences
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?]) +', text) if len(s.strip()) > 10]
             
-            # SCORE each sentence by how many question words it has
-            q_words = set([w.lower() for w in question.split() if len(w) > 3])
-            best_score = 0
+            # Find best matching sentence
+            q_words = set([w.lower() for w in question.split() if len(w) > 2])
             best_answer = "Answer not found in document."
+            best_score = 0
             
             for s in sentences:
-                s_lower = s.lower()
-                score = sum(1 for w in q_words if w in s_lower)
+                score = sum(1 for w in q_words if w in s.lower())
                 if score > best_score:
                     best_score = score
                     best_answer = s
             
-            st.write("**Answer:**", best_answer)
+            if best_score > 0:
+                st.write("**Answer:**", best_answer)
+            else:
+                st.write("**Answer:**", "Answer not found in document.")
