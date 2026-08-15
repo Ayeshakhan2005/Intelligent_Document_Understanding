@@ -1,8 +1,11 @@
 import streamlit as st
-import tempfile
-import os
-from pathlib import Path
-from paddlex import create_pipeline
+import pytesseract
+import cv2
+import numpy as np
+from PIL import Image
+import io
+import re
+from sentence_transformers import SentenceTransformer
 
 st.set_page_config(
     page_title="Intelligent Document Understanding",
@@ -10,166 +13,178 @@ st.set_page_config(
 )
 
 st.title("📄 Intelligent Document Understanding")
-st.write(
-    "Upload a document image and extract text, tables, formulas, "
-    "and structured information."
-)
 
 
 @st.cache_resource
-def load_pipeline():
-    return create_pipeline(
-        pipeline="PP-StructureV3"
+def load_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+
+model = load_model()
+
+
+def get_text_from_image(img):
+
+    img = cv2.resize(
+        img,
+        None,
+        fx=3,
+        fy=3,
+        interpolation=cv2.INTER_CUBIC
     )
 
+    gray = cv2.cvtColor(
+        img,
+        cv2.COLOR_BGR2GRAY
+    )
 
-try:
-    pipeline = load_pipeline()
-except Exception as e:
-    st.error("OCR system could not start.")
-    st.code(str(e))
-    st.stop()
+    clahe = cv2.createCLAHE(
+        clipLimit=2.0,
+        tileGridSize=(8, 8)
+    )
+
+    gray = clahe.apply(gray)
+
+    processed = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        11
+    )
+
+    text = pytesseract.image_to_string(
+        processed,
+        config="--oem 1 --psm 3"
+    )
+
+    return text
+
+
+def clean_text(text):
+
+    text = text.replace("-\n", "")
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+def find_relevant_context(question, text):
+
+    words = text.split()
+
+    chunks = []
+
+    for i in range(0, len(words), 100):
+
+        chunk = " ".join(words[i:i + 100])
+
+        if len(chunk) > 20:
+            chunks.append(chunk)
+
+    if not chunks:
+        return None
+
+    question_embedding = model.encode(
+        question,
+        normalize_embeddings=True
+    )
+
+    chunk_embeddings = model.encode(
+        chunks,
+        normalize_embeddings=True
+    )
+
+    scores = np.dot(
+        chunk_embeddings,
+        question_embedding
+    )
+
+    best = np.argsort(scores)[::-1][:3]
+
+    results = [
+        chunks[i]
+        for i in best
+        if scores[i] >= 0.25
+    ]
+
+    if not results:
+        return None
+
+    return "\n\n".join(results[:2])
 
 
 uploaded_file = st.file_uploader(
-    "Upload a document",
-    type=[
-        "jpg",
-        "jpeg",
-        "png",
-        "bmp",
-        "webp",
-        "pdf"
-    ]
+    "Upload a document image",
+    type=["jpg", "jpeg", "png", "bmp", "webp"]
 )
 
 
 if uploaded_file:
 
-    suffix = Path(uploaded_file.name).suffix
+    data = uploaded_file.getvalue()
 
-    with tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=suffix
-    ) as tmp:
-        tmp.write(uploaded_file.getvalue())
-        input_path = tmp.name
+    image = Image.open(
+        io.BytesIO(data)
+    )
 
     st.image(
-        uploaded_file,
+        image,
         caption=uploaded_file.name,
         use_container_width=True
     )
 
-    st.subheader("🔍 Processing")
+    file_bytes = np.asarray(
+        bytearray(data),
+        dtype=np.uint8
+    )
 
-    try:
+    img = cv2.imdecode(
+        file_bytes,
+        cv2.IMREAD_COLOR
+    )
 
-        with st.spinner(
-            "Analyzing document, layout, text, tables and formulas..."
-        ):
+    with st.spinner("Extracting text..."):
 
-            results = pipeline.predict(
-                input=input_path,
+        text = get_text_from_image(img)
+        text = clean_text(text)
 
-                # Helps with rotated documents
-                use_doc_orientation_classify=True,
+    st.subheader("📝 Extracted Text")
 
-                # Helps with distorted/warped document photos
-                use_doc_unwarping=True,
+    st.text_area(
+        "Result",
+        text,
+        height=400
+    )
 
-                # Helps with rotated text lines
-                use_textline_orientation=True
-            )
+    st.download_button(
+        "Download Text",
+        text,
+        "extracted_text.txt"
+    )
 
-            extracted_text = ""
-            markdown_output = ""
+    st.subheader("💬 Ask Questions")
 
-            for result in results:
+    question = st.text_input(
+        "Ask anything about the document:"
+    )
 
-                # Get structured markdown when available
-                try:
-                    md = result.markdown
+    if question:
 
-                    if isinstance(md, dict):
-                        text = md.get("text", "")
-                    else:
-                        text = str(md)
+        context = find_relevant_context(
+            question,
+            text
+        )
 
-                    if text:
-                        markdown_output += text + "\n\n"
-
-                except Exception:
-                    pass
-
-                # Try OCR result
-                try:
-                    ocr_result = result.json
-
-                    if isinstance(ocr_result, dict):
-                        overall = ocr_result.get(
-                            "overall_ocr_res",
-                            {}
-                        )
-
-                        rec_texts = overall.get(
-                            "rec_texts",
-                            []
-                        )
-
-                        if rec_texts:
-                            extracted_text += (
-                                "\n".join(rec_texts)
-                                + "\n"
-                            )
-
-                except Exception:
-                    pass
-
-            # Prefer structured markdown
-            if markdown_output.strip():
-                final_text = markdown_output.strip()
-            else:
-                final_text = extracted_text.strip()
-
-        st.success("Document processed successfully!")
-
-        st.subheader("📝 Extracted Content")
-
-        if final_text:
-
-            st.text_area(
-                "Result",
-                final_text,
-                height=500
-            )
-
-            st.download_button(
-                "⬇️ Download Extracted Text",
-                final_text,
-                "extracted_text.txt",
-                mime="text/plain"
-            )
-
+        if context:
+            st.success("Relevant information:")
+            st.write(context)
         else:
-
             st.warning(
-                "The OCR pipeline did not return readable text."
+                "I could not find relevant information."
             )
-
-    except Exception as e:
-
-        st.error("Error while processing the document.")
-
-        st.code(str(e))
-
-    finally:
-
-        if os.path.exists(input_path):
-            os.remove(input_path)
 
 else:
 
-    st.info(
-        "Upload a document image to start."
-    )
+    st.info("Please upload an image to begin.")
