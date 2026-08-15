@@ -1,5 +1,3 @@
 streamlit
-pytesseract
-opencv-python-headless
+google-genai
 Pillow
-numpy
