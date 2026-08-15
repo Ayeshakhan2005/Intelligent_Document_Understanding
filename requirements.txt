@@ -1,7 +1,5 @@
 streamlit
-paddleocr
 paddlepaddle
-paddlex
 opencv-python-headless
 numpy
 Pillow
